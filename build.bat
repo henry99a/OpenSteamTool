@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableDelayedExpansion
 
 REM Always run from the script directory.
 cd /d "%~dp0"
@@ -21,13 +21,7 @@ if "%GENERATOR%"=="" (
 if "%ARCH%"=="" set "ARCH=x64"
 if "%CONFIGS%"=="" set "CONFIGS=Release Debug"
 
-REM clean the previous build cache
-REM if exist "build" (
-REM     echo [INFO] Removing build directory...
-REM     rmdir /s /q "build"
-REM )
-
-echo [INFO] Configuring project with generator: %GENERATOR%
+echo [INFO] Configuring with generator: %GENERATOR%
 echo "%GENERATOR%" | findstr /I /C:"Visual Studio" >nul
 if not errorlevel 1 (
     cmake -S src -B build -G "%GENERATOR%" -A %ARCH%
@@ -37,7 +31,7 @@ if not errorlevel 1 (
 if errorlevel 1 goto :fail
 
 for %%C in (%CONFIGS%) do (
-    echo [INFO] Building %%C...
+    echo [INFO] Building: %%C
     cmake --build build --config %%C
     if errorlevel 1 goto :fail
 )

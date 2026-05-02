@@ -2,7 +2,7 @@
 #define HOOKMANAGER_H
 
 #include "dllmain.h"
-#include "ByteSearch.h"
+#include "Patterns.h"
 
 namespace SteamUI {
     void CoreHook();
