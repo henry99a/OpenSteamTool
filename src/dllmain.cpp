@@ -10,6 +10,7 @@ bool LoadDiversion()
     sprintf_s(SteamclientPath, MAX_PATH, "%s\\steamclient64.dll",  SteamInstallPath);
     sprintf_s(DiversionPath,   MAX_PATH, "%s\\bin\\diversion.dll", SteamInstallPath);
     sprintf_s(LuaDir,          MAX_PATH, "%s\\config\\lua",        SteamInstallPath);
+    sprintf_s(ConfigPath,      MAX_PATH, "%s\\opensteamtool.toml", SteamInstallPath);
     // copy steamclient64.dll to diversion.dll
     CopyFileA(SteamclientPath, DiversionPath, FALSE);
     diversion_hMdoule = LoadLibraryA(DiversionPath);
@@ -29,6 +30,8 @@ static DWORD WINAPI InitThread(LPVOID param) {
         return 1;
     }
 
+    Config::Load(ConfigPath);
+    Log::InitModules();
     LuaConfig::ParseDirectory(std::string(LuaDir));
     SteamUI::CoreHook();
     SteamClient::CoreHook();

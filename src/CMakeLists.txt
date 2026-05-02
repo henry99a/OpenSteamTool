@@ -25,6 +25,7 @@ include(Lua)
 include(Detours)
 include(Spdlog)
 include(Nanopb)
+include(Tomlplusplus)
 
 # ---------------------------------------------------------------------------
 # OpenSteamTool — the hook DLL injected into Steam (always 64-bit).
@@ -36,8 +37,10 @@ add_library(OpenSteamTool SHARED
     Utils/AppTicket.cpp
     Utils/ByteSearch.cpp
     Utils/Log.cpp
+    Utils/Config.cpp
     Utils/LuaConfig.cpp
     Utils/VehCommon.cpp
+    Utils/WinHttp.cpp
 
     # Per-category hook modules
     Hook/HookManager.cpp
@@ -68,6 +71,7 @@ target_link_libraries(OpenSteamTool PRIVATE
     detours
     winhttp
     nanopb
+    tomlplusplus::tomlplusplus
     $<$<CONFIG:Debug>:spdlog::spdlog>
 )
 

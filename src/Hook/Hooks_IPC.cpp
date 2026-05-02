@@ -130,16 +130,16 @@ namespace {
                                                const uint8*, int32,
                                                AppId_t appId)
     {
-        LOG_DEBUG(pWrite->DebugString());
+        LOG_IPC_DEBUG(pWrite->DebugString());
         const uint64 spoofed = AppTicket::GetSpoofSteamID(appId);
         if(!spoofed){
-            LOG_WARN("IClientUser::GetSteamID: AppId={} no valid ticket - cannot spoof", appId);
+            LOG_IPC_WARN("IClientUser::GetSteamID: AppId={} no valid ticket - cannot spoof", appId);
             return;
         }
         uint8* base = pWrite->m_Memory.m_pMemory;
         base[0] = RESPONSE_PREFIX;
         memcpy(base + 1, &spoofed, sizeof(spoofed));
-        LOG_DEBUG("IClientUser::GetSteamID: AppId={} -> Spoofed: 0x{:X}({})", appId, spoofed, spoofed);
+        LOG_IPC_DEBUG("IClientUser::GetSteamID: AppId={} -> Spoofed: 0x{:X}({})", appId, spoofed, spoofed);
     }
 
     // ── Handler: IClientUser::GetAppOwnershipTicketExtendedData ───
@@ -156,13 +156,13 @@ namespace {
     static void Handler_IClientUser_GetAppOwnershipTicketExtendedData(
         CUtlBuffer* pWrite, const uint8* reqData, int32 reqSize, AppId_t appId)
     {
-        LOG_DEBUG(pWrite->DebugString());
+        LOG_IPC_DEBUG(pWrite->DebugString());
         if (reqSize < OFFSET_ARGS + 8) return;
         const uint8* args = reqData + OFFSET_ARGS;
         const uint32 reqAppID   = *reinterpret_cast<const uint32*>(args);
         const int32  reqBufSize = *reinterpret_cast<const int32*>(args + 4);
 
-        LOG_DEBUG("IClientUser::GetAppOwnershipTicketExtendedData: req AppID={} bufSize={}",
+        LOG_IPC_DEBUG("IClientUser::GetAppOwnershipTicketExtendedData: req AppID={} bufSize={}",
                   reqAppID, reqBufSize);
 
         std::vector<uint8_t> ticket = AppTicket::GetAppOwnershipTicketFromRegistry(reqAppID);
@@ -197,7 +197,7 @@ namespace {
         memcpy(base + outOff + 8,  &piSignature,  4);
         memcpy(base + outOff + 12, &pcbSignature,  4);
 
-        LOG_DEBUG("IClientUser::GetAppOwnershipTicketExtendedData: AppId={} -> {} bytes "
+        LOG_IPC_DEBUG("IClientUser::GetAppOwnershipTicketExtendedData: AppId={} -> {} bytes "
                   "(sigOffset={})", appId, ticketSize, sigOffset);
     }
 
@@ -226,7 +226,7 @@ namespace {
         const uint8* data = pRead->m_Memory.m_pMemory;
         const auto cmd = static_cast<EIPCCommand>(data[OFFSET_CMD]);
         if (cmd != EIPCCommand::InterfaceCall) {
-            LOG_TRACE("ipc: cmd={} size={} (skipped)", static_cast<int>(cmd), size);
+            LOG_IPC_TRACE("ipc: cmd={} size={} (skipped)", static_cast<int>(cmd), size);
             return nullptr;
         }
 
@@ -234,12 +234,12 @@ namespace {
         const uint32 funcHash = *reinterpret_cast<const uint32*>(data + OFFSET_FUNC_HASH);
         const IpcHandlerEntry* entry = FindHandler(iface, funcHash);
         if (!entry) {
-            LOG_TRACE("ipc: unhandled iface={} hash=0x{:08X}",
+            LOG_IPC_TRACE("ipc: unhandled iface={} hash=0x{:08X}",
                       static_cast<int>(iface), funcHash);
             return nullptr;
         }
 
-        LOG_TRACE("ipc: dispatch -> {}", entry->name);
+        LOG_IPC_TRACE("ipc: dispatch -> {}", entry->name);
         return entry;
     }
 
@@ -268,7 +268,7 @@ namespace {
         void* pipe = GetPipe(pServer, hSteamPipe);
         const uint32 clientPID = GetPipeClientPID(pipe);
         if (IsSteamInternal(pipe, clientPID)) {
-            LOG_TRACE("ipc: {} from steam — passthrough", entry->name);
+            LOG_IPC_TRACE("ipc: {} from steam — passthrough", entry->name);
             return result;
         }
 
@@ -276,7 +276,7 @@ namespace {
         if (appId == 0)
             appId = Hooks_Misc::GetAppIDFromInitialRunningGame();
         if (appId == 0 || !LuaConfig::HasDepot(appId)) {
-            LOG_WARN("ipc: {} pid={} no spoof config (appId={})",
+            LOG_IPC_WARN("ipc: {} pid={} no spoof config (appId={})",
                       entry->name, clientPID, appId);
             return result;
         }

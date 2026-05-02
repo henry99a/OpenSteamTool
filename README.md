@@ -16,7 +16,8 @@ OpenSteamTool is a Windows DLL project built with CMake.
 - Bypass Steam Family Sharing restrictions, allowing shared games to be played without limitations.
 
 ### Compatible with games protected by Denuvo and SteamStub
-- For AppTicket and ETicket: in `HKEY_CURRENT_USER\Software\Valve\Steam\Apps\{AppId}`, both `AppTicket` and `ETicket` are `REG_BINARY` values (case-insensitive).
+- For AppTicket and ETicket: in `HKEY_CURRENT_USER\Software\Valve\Steam\Apps\{AppId}`, both `AppTicket` and `ETicket` are `REG_BINARY` values.
+- Use `setAppTicket(appid, "hex")` and `setETicket(appid, "hex")` in Lua config to write these values to the registry automatically.
 - SteamID priority: read `SteamID` as `REG_SZ` (numeric-only) first; if missing, parse from `AppTicket`.
 
 ## Future
@@ -40,7 +41,64 @@ addtoken(1361510,"2764735786934684318") -- add access token ("276473578693468431
 
 setManifestid(1361511,"5656605350306673283",0) -- pin depotid:1361511 manifest_gid:5656605350306673283 ,size:0(steam will handle it,but you can assign it)
 
-``` 
+setAppTicket(1361510,"0100000000000000...") -- write AppTicket (REG_BINARY) to HKCU\Software\Valve\Steam\Apps\1361510\AppTicket
+
+setETicket(1361510,"0100000000000000...") -- write ETicket (REG_BINARY) to HKCU\Software\Valve\Steam\Apps\1361510\ETicket
+```
+
+All function names are **case-insensitive**. `setAppTicket`, `setappticket`, `SetAppticket`, `SETAPPTICKET` etc. are all equivalent. The same applies to every registered function (`addAppId`, `AddToken`, `SETManifestid`, etc.).
+
+### Configuration (optional)
+
+Place `opensteamtool.toml` in the Steam root directory (next to `steam.exe`).  
+A reference file is available at `opensteamtool.example.toml` in this repository.  
+If no config file is found, built-in defaults are used — no auto-creation.
+
+```toml
+[log]
+# Debug build only.  Level: trace, debug, info, warn, error
+level = "info"
+
+[manifest]
+# Upstream API for depot manifest request codes.  Options: "steamrun", "wudrm"
+url = "steamrun"
+
+# HTTP timeouts for manifest requests (milliseconds)
+timeout_resolve_ms = 5000
+timeout_connect_ms = 5000
+timeout_send_ms    = 10000
+timeout_recv_ms    = 10000
+```
+
+### Manifest via Lua
+
+If `<Steam>/config/lua/manifest.lua` defines `fetch_manifest_code(gid)`, it
+overrides the `[manifest] url` setting.  The C++ runtime provides two Lua
+helpers:
+
+| Function | Signature | Returns |
+|----------|-----------|---------|
+| `http_get`  | `http_get(url [, headers])`       | `body, status_code` |
+| `http_post` | `http_post(url, body [, headers])` | `body, status_code` |
+
+`headers` is an optional table: `{["Key"]="Value", ...}`.
+
+### Debug logging
+
+Debug builds write per-module log files under `<Steam>/opensteamtool/`:
+
+| File | Source |
+|------|--------|
+| `main.log`          | General (init, config, lua) |
+| `ipc.log`           | `LOG_IPC_*`  macros |
+| `netpacket.log`     | `LOG_NETPACKET_*` |
+| `manifest.log`      | `LOG_MANIFEST_*` |
+| `decryptionkey.log` | `LOG_DECRYPTIONKEY_*` |
+| `keyvalue.log`      | `LOG_KEYVALUE_*` |
+| `misc.log`          | `LOG_MISC_*` |
+| `winhttp.log`       | `LOG_WINHTTP_*` |
+
+The log level is controlled by `[log] level` in `opensteamtool.toml`.
 
 ## Build
 

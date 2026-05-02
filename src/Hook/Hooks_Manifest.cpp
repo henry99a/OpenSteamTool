@@ -1,121 +1,96 @@
 #include "Hooks_Manifest.h"
 #include "HookMacros.h"
 #include "dllmain.h"
-#include <winhttp.h>
+#include "Utils/WinHttp.h"
 #include <charconv>
-#include <mutex>
-#include <unordered_map>
 
-#pragma comment(lib, "winhttp.lib")
-
+// ═══════════════════════════════════════════════════════════════════
+//  Manifest request-code resolution.
+//  No cache — codes rotate over time, fetch every call.
+// ═══════════════════════════════════════════════════════════════════
 namespace {
-    // manifest_gid -> request_code, populated lazily on first miss.
-    std::mutex                              g_cacheMu;
-    std::unordered_map<uint64, uint64>      g_codeCache;
-    std::unordered_map<uint64, bool>        g_negativeCache;  // remembers known-bad gids
+    // GET https://manifest.steam.run/api/manifest/{gid}
+    // Response: {"content":"1666836470726104466"}
+    bool FetchSteamRun(uint64 manifest_gid, uint64* outRequestCode) {
+        char url[128];
+        snprintf(url, sizeof(url), "https://manifest.steam.run/api/manifest/%llu", manifest_gid);
 
-    // Connect 5s, send/receive 10s. Anything beyond this and we'd rather
-    // fall through to the original (which Steam will then surface as a
-    // user-visible error) than block a UI thread.
-    constexpr DWORD kTimeoutResolveMs = 5000;
-    constexpr DWORD kTimeoutConnectMs = 5000;
-    constexpr DWORD kTimeoutSendMs    = 10000;
-    constexpr DWORD kTimeoutRecvMs    = 10000;
+        auto r = WinHttp::Execute(L"GET", url, nullptr, 0, nullptr,
+                                 Config::manifestTimeoutResolve,
+                                 Config::manifestTimeoutConnect,
+                                 Config::manifestTimeoutSend,
+                                 Config::manifestTimeoutRecv);
+        LOG_MANIFEST_INFO("Manifest steamrun status={} gid={}", r.status, manifest_gid);
 
-    bool FetchManifestRequestCode(uint64 manifest_gid, uint64* outRequestCode) {
-        HINTERNET hSession = WinHttpOpen(L"OpenSteamTool/1.0",
-            WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-            WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-        if (!hSession) return false;
+        if (!r.ok || r.status != 200) return false;
 
-        WinHttpSetTimeouts(hSession,
-            kTimeoutResolveMs, kTimeoutConnectMs, kTimeoutSendMs, kTimeoutRecvMs);
-
-        bool ok = false;
-        HINTERNET hConnect = WinHttpConnect(hSession, L"manifest.steam.run",
-            INTERNET_DEFAULT_HTTPS_PORT, 0);
-        if (hConnect) {
-            wchar_t path[128];
-            swprintf_s(path, L"/api/manifest/%llu", manifest_gid);
-
-            HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", path,
-                nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
-                WINHTTP_FLAG_SECURE);
-            if (hRequest) {
-                if (WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
-                        WINHTTP_NO_REQUEST_DATA, 0, 0, 0)
-                    && WinHttpReceiveResponse(hRequest, nullptr)) {
-
-                    DWORD statusCode = 0, statusSize = sizeof(statusCode);
-                    WinHttpQueryHeaders(hRequest,
-                        WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-                        WINHTTP_HEADER_NAME_BY_INDEX, &statusCode, &statusSize,
-                        WINHTTP_NO_HEADER_INDEX);
-                    LOG_DEBUG("Manifest request status={} gid={}", statusCode, manifest_gid);
-                    if (statusCode == 200) {
-                        std::string body;
-                        DWORD avail = 0;
-                        while (WinHttpQueryDataAvailable(hRequest, &avail) && avail) {
-                            size_t off = body.size();
-                            body.resize(off + avail);
-                            DWORD read = 0;
-                            if (!WinHttpReadData(hRequest, body.data() + off, avail, &read)) break;
-                            body.resize(off + read);
-                            if (body.size() > 64 * 1024) break;
-                        }
-                        // Response shape: {"content":"1666836470726104466"}
-                        if (size_t key = body.find("\"content\""); key != std::string::npos) {
-                            if (size_t q1 = body.find('"', key + 9); q1 != std::string::npos) {
-                                if (size_t q2 = body.find('"', q1 + 1); q2 != std::string::npos) {
-                                    uint64 code = 0;
-                                    auto [_, ec] = std::from_chars(
-                                        body.data() + q1 + 1, body.data() + q2, code);
-                                    if (ec == std::errc{}) {
-                                        *outRequestCode = code;
-                                        ok = true;
-                                    }
-                                }
-                            }
-                        }
+        if (size_t key = r.body.find("\"content\""); key != std::string::npos) {
+            if (size_t q1 = r.body.find('"', key + 9); q1 != std::string::npos) {
+                if (size_t q2 = r.body.find('"', q1 + 1); q2 != std::string::npos) {
+                    uint64 code = 0;
+                    auto [_, ec] = std::from_chars(
+                        r.body.data() + q1 + 1, r.body.data() + q2, code);
+                    if (ec == std::errc{}) {
+                        *outRequestCode = code;
+                        return true;
                     }
                 }
-                WinHttpCloseHandle(hRequest);
             }
-            WinHttpCloseHandle(hConnect);
         }
-        WinHttpCloseHandle(hSession);
-        return ok;
+        return false;
     }
 
-    bool ResolveCached(uint64 manifest_gid, uint64* outRequestCode) {
-        {
-            std::lock_guard lock(g_cacheMu);
-            if (auto it = g_codeCache.find(manifest_gid); it != g_codeCache.end()) {
-                *outRequestCode = it->second;
-                return true;
-            }
-            if (g_negativeCache.count(manifest_gid)) return false;
-        }
+    // ── provider: gmrc.wudrm.com ───────────────────────────────────
+    // GET http://gmrc.wudrm.com/manifest/{gid}
+    // Response: plain-text uint64, e.g. "10570517747114638659"
+    bool FetchWudrm(uint64 manifest_gid, uint64* outRequestCode) {
+        char url[128];
+        snprintf(url, sizeof(url), "http://gmrc.wudrm.com/manifest/%llu", manifest_gid);
+
+        auto r = WinHttp::Execute(L"GET", url, nullptr, 0, nullptr,
+                                 Config::manifestTimeoutResolve,
+                                 Config::manifestTimeoutConnect,
+                                 Config::manifestTimeoutSend,
+                                 Config::manifestTimeoutRecv);
+        LOG_MANIFEST_INFO("Manifest wudrm status={} gid={}", r.status, manifest_gid);
+            
+        if (!r.ok || r.status != 200) return false;
 
         uint64 code = 0;
-        bool ok = FetchManifestRequestCode(manifest_gid, &code);
-
-        std::lock_guard lock(g_cacheMu);
-        if (ok) {
-            g_codeCache[manifest_gid] = code;
+        auto [_, ec] = std::from_chars(r.body.data(), r.body.data() + r.body.size(), code);
+        if (ec == std::errc{}) {
             *outRequestCode = code;
-        } else {
-            g_negativeCache[manifest_gid] = true;
+            return true;
         }
-        return ok;
+        return false;
+    }
+
+    // ── resolve (single-provider, no fallback) ────────────────────
+    bool FetchManifestRequestCode(uint64 manifest_gid, uint64* outRequestCode) {
+        if (LuaConfig::HasManifestCodeFunc()) {
+            if (LuaConfig::CallManifestFetchCode(manifest_gid, outRequestCode)) {
+                LOG_MANIFEST_INFO("Manifest gid={} resolved via manifest.lua", manifest_gid);
+                return true;
+            }
+            LOG_MANIFEST_WARN("Manifest gid={} lua returned nil, falling back to config", manifest_gid);
+        }
+
+        switch (Config::manifestUrl) {
+        case Config::ManifestUrl::Wudrm:
+            return FetchWudrm(manifest_gid, outRequestCode);
+        case Config::ManifestUrl::SteamRun:
+        default:
+            return FetchSteamRun(manifest_gid, outRequestCode);
+        }
     }
 
     HOOK_FUNC(GetManifestRequestCode, EResult, void* pObject, AppId_t AppId, AppId_t DepotId,
               uint64 manifest_gid, const char* branch, uint64* outRequestCode) {
-        if (LuaConfig::HasDepot(DepotId)) {
-            if (ResolveCached(manifest_gid, outRequestCode))
-                return k_EResultOK;
-        }
+        LOG_MANIFEST_DEBUG("GetManifestRequestCode: AppId={} DepotId={} gid={} branch={}",
+                          AppId, DepotId, manifest_gid, branch);
+        if (LuaConfig::HasDepot(DepotId)
+            && FetchManifestRequestCode(manifest_gid, outRequestCode))
+            return k_EResultOK;
         return oGetManifestRequestCode(pObject, AppId, DepotId, manifest_gid, branch, outRequestCode);
     }
 }
@@ -131,9 +106,5 @@ namespace Hooks_Manifest {
         UNHOOK_BEGIN();
         UNINSTALL_HOOK(GetManifestRequestCode);
         UNHOOK_END();
-
-        std::lock_guard lock(g_cacheMu);
-        g_codeCache.clear();
-        g_negativeCache.clear();
     }
 }

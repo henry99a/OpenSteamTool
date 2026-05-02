@@ -41,7 +41,7 @@ inline bool UnpackPacket(CNetPacket* p, const uint8*& pBody, uint32& cbBody,
 // ---- helper: replace body bytes inside CNetPacket (ring-buffer pool) ----
 inline void ReplaceBody(CNetPacket* p, const uint8* pNewBody, uint32 cbNewBody)
 {
-    LOG_DEBUG("Replacing packet body with new body of size {}...", cbNewBody);
+    LOG_NETPACKET_DEBUG("Replacing packet body with new body of size {}...", cbNewBody);
     uint32 hdrLen = 8 + *(uint32*)(p->m_pubData + 4);
     uint32 newSize = hdrLen + cbNewBody;
     if (newSize > sizeof(g_PacketPool[0])) return;
@@ -62,12 +62,12 @@ inline void ReplaceBody(CNetPacket* p, const uint8* pNewBody, uint32 cbNewBody)
 
 void HandleEncryptedAppTicketResponse(const uint8* pBody, uint32 cbBody)
 {
-    LOG_DEBUG("Handling CMsgClientRequestEncryptedAppTicketResponse...");
+    LOG_NETPACKET_DEBUG("Handling CMsgClientRequestEncryptedAppTicketResponse...");
     // ---- decode response body ----
     CMsgClientRequestEncryptedAppTicketResponse resp = {};
     pb_istream_t stream = pb_istream_from_buffer(pBody, cbBody);
     if (!pb_decode(&stream, CMsgClientRequestEncryptedAppTicketResponse_fields, &resp)){
-        LOG_WARN("Failed to decode CMsgClientRequestEncryptedAppTicketResponse");
+        LOG_NETPACKET_WARN("Failed to decode CMsgClientRequestEncryptedAppTicketResponse");
         return;
     }
 
@@ -83,7 +83,7 @@ void HandleEncryptedAppTicketResponse(const uint8* pBody, uint32 cbBody)
     EncryptedAppTicket newTicket = {};
     pb_istream_t ticketStream = pb_istream_from_buffer(ticket.data(), static_cast<uint32>(ticket.size()));
     if (!pb_decode(&ticketStream, EncryptedAppTicket_fields, &newTicket)){
-        LOG_WARN("Failed to decode EncryptedAppTicket");
+        LOG_NETPACKET_WARN("Failed to decode EncryptedAppTicket");
         return;
     }
 
@@ -95,7 +95,7 @@ void HandleEncryptedAppTicketResponse(const uint8* pBody, uint32 cbBody)
     // ---- encode modified response ----
     pb_ostream_t outStream = pb_ostream_from_buffer(g_NewBody, sizeof(g_NewBody));
     if (!pb_encode(&outStream, CMsgClientRequestEncryptedAppTicketResponse_fields, &resp)){
-        LOG_WARN("Failed to encode modified CMsgClientRequestEncryptedAppTicketResponse");
+        LOG_NETPACKET_WARN("Failed to encode modified CMsgClientRequestEncryptedAppTicketResponse");
         return;
     }
 
@@ -106,7 +106,7 @@ void HandleEncryptedAppTicketResponse(const uint8* pBody, uint32 cbBody)
 void HandleNotifyRunningApps(const uint8* pBody, uint32 cbBody)
 {
     (void)pBody; (void)cbBody;
-    LOG_DEBUG("Blocking CFamilyGroupsClient_NotifyRunningApps_Notification...");
+    LOG_NETPACKET_DEBUG("Blocking CFamilyGroupsClient_NotifyRunningApps_Notification...");
     g_cbNewBody = 0;
     g_NeedReplace = true;
 }
@@ -114,7 +114,7 @@ void HandleNotifyRunningApps(const uint8* pBody, uint32 cbBody)
 void HandleSharedLibraryStopPlaying(const uint8* pBody, uint32 cbBody)
 {
     (void)pBody; (void)cbBody;
-    LOG_DEBUG("Blocking CMsgClientSharedLibraryStopPlaying...");
+    LOG_NETPACKET_DEBUG("Blocking CMsgClientSharedLibraryStopPlaying...");
     g_cbNewBody = 0;
     g_NeedReplace = true;
 }
@@ -145,7 +145,7 @@ void RespJob(EMsg eMsg, const uint8* pBody, uint32 cbBody,
     g_NeedReplace = false;
     if (cbBody < 1) return;
     
-    LOG_TRACE("Received eMsg {} (cbBody={}, cbHdr={})", static_cast<uint32>(eMsg), cbBody, cbHdr);
+    LOG_NETPACKET_TRACE("Received eMsg {} (cbBody={}, cbHdr={})", static_cast<uint32>(eMsg), cbBody, cbHdr);
 
     switch (eMsg) {
 

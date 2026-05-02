@@ -97,6 +97,42 @@ namespace AppTicket {
         return value;
     }
 
+    bool WriteAppOwnershipTicket(AppId_t appId, const std::vector<uint8_t>& data) {
+        HKEY hKey;
+        const std::string regPath = "Software\\Valve\\Steam\\Apps\\" + std::to_string(appId);
+        DWORD disposition;
+        if (RegCreateKeyExA(HKEY_CURRENT_USER, regPath.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, &disposition) != ERROR_SUCCESS) {
+            LOG_ERROR("Failed to create/open registry key: {}", regPath);
+            return false;
+        }
+        LSTATUS result = RegSetValueExA(hKey, "AppTicket", 0, REG_BINARY, data.data(), static_cast<DWORD>(data.size()));
+        RegCloseKey(hKey);
+        if (result != ERROR_SUCCESS) {
+            LOG_ERROR("Failed to write AppTicket for AppId {}: {}", appId, result);
+            return false;
+        }
+        LOG_INFO("Wrote AppTicket for AppId {} ({} bytes)", appId, data.size());
+        return true;
+    }
+
+    bool WriteEncryptedTicket(AppId_t appId, const std::vector<uint8_t>& data) {
+        HKEY hKey;
+        const std::string regPath = "Software\\Valve\\Steam\\Apps\\" + std::to_string(appId);
+        DWORD disposition;
+        if (RegCreateKeyExA(HKEY_CURRENT_USER, regPath.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, &disposition) != ERROR_SUCCESS) {
+            LOG_ERROR("Failed to create/open registry key: {}", regPath);
+            return false;
+        }
+        LSTATUS result = RegSetValueExA(hKey, "ETicket", 0, REG_BINARY, data.data(), static_cast<DWORD>(data.size()));
+        RegCloseKey(hKey);
+        if (result != ERROR_SUCCESS) {
+            LOG_ERROR("Failed to write ETicket for AppId {}: {}", appId, result);
+            return false;
+        }
+        LOG_INFO("Wrote ETicket for AppId {} ({} bytes)", appId, data.size());
+        return true;
+    }
+
     uint64_t GetSpoofSteamID(AppId_t appId) {
         const uint64_t registrySteamID = GetSteamIDFromRegistryString(appId);
         if (registrySteamID != 0) {
